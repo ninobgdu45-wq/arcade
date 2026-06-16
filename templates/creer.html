@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block titre %}Borne Arcade — Créer{% endblock %}
+
+{% block contenu %}
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-link">← Retour</a>
+    <div class="titles">
+      <h1>Créer un jeu</h1>
+      <p>Lance l'éditeur Scratch ou consulte les tutos</p>
+    </div>
+  </div>
+  <div class="clock" id="horloge">--:--:--</div>
+</header>
+
+<main class="main">
+  <div class="nav-grid">
+    <a href="https://scratch.mit.edu/projects/editor/" target="_blank" class="nav-card">
+      <div class="icon">🧩</div>
+      <div class="label">Ouvrir l'éditeur Scratch en ligne</div>
+    </a>
+    <button class="nav-card" onclick="ouvrirScratchLocal()">
+      <div class="icon">💻</div>
+      <div class="label">Ouvrir Scratch installé sur la borne</div>
+    </button>
+  </div>
+
+  <div class="stats-card" style="margin-top:24px;">
+    <h3>Avant de commencer</h3>
+    <p style="color:var(--text-dim); font-size:13.5px; line-height:1.7; margin:0 0 12px;">
+      Une fois ton projet terminé, exporte-le en fichier <strong style="color:var(--text);">.sb3</strong>
+      depuis Scratch (menu Fichier → Enregistrer sur l'ordinateur). Tu pourras ensuite le déposer
+      sur la borne depuis l'écran d'accueil, et l'associer à ton nom dans la liste des auteurs.
+    </p>
+  </div>
+
+  <div class="stats-card" style="margin-top:16px;">
+    <h3>Idées de projets pour démarrer</h3>
+    <div class="stat-line"><span>🐱 Un jeu de poursuite simple (chat qui attrape une souris)</span></div>
+    <div class="stat-line"><span>🎯 Un jeu de tir où il faut éviter des obstacles</span></div>
+    <div class="stat-line"><span>🧠 Un quiz à choix multiples avec score final</span></div>
+    <div class="stat-line"><span>🏃 Un jeu de plateforme avec un personnage qui saute</span></div>
+  </div>
+</main>
+{% endblock %}
+
+{% block script %}
+<script>
+async function ouvrirScratchLocal() {
+  const resultat = await appelApi("/api/scratch/ouvrir", { method: "POST", body: JSON.stringify({}) });
+  if (resultat) afficherToast(resultat.message, resultat.succes ? "success" : "error");
+}
+</script>
+{% endblock %}

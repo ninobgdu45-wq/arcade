@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block titre %}Borne Arcade — Classement{% endblock %}
+
+{% block contenu %}
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-link">← Retour</a>
+    <div class="titles">
+      <h1>Classement</h1>
+      <p>Meilleurs scores de la borne</p>
+    </div>
+  </div>
+  <div class="clock" id="horloge">--:--:--</div>
+</header>
+
+<main class="main">
+  <div id="podium" class="podium"></div>
+  <div id="liste-classement"></div>
+</main>
+{% endblock %}
+
+{% block script %}
+<script>
+async function chargerClassement() {
+  const classement = await appelApi("/api/scores/general?limite=20");
+  const podiumEl = document.getElementById("podium");
+  const listeEl = document.getElementById("liste-classement");
+
+  if (!classement || classement.length === 0) {
+    podiumEl.innerHTML = "";
+    listeEl.innerHTML = `<div class="empty-state"><div class="icon">🏆</div>Aucun score enregistré pour le moment.</div>`;
+    return;
+  }
+
+  const top3 = classement.slice(0, 3);
+  const ordreAffichage = top3.length === 3 ? [1, 0, 2] : top3.map((_, i) => i);
+  podiumEl.innerHTML = ordreAffichage.map(i => {
+    const entree = top3[i];
+    if (!entree) return "";
+    const classe = i === 0 ? "or" : "";
+    return `
+      <div class="podium-place ${classe}">
+        <div class="podium-rang">#${i + 1}</div>
+        <div class="podium-nom">${escapeHtmlClassement(entree.nom_joueur)}</div>
+        <div class="podium-score">${entree.score} pts</div>
+      </div>
+    `;
+  }).join("");
+
+  const reste = classement.slice(3);
+  listeEl.innerHTML = reste.map((entree, i) => `
+    <div class="classement-row">
+      <div class="classement-rang">#${i + 4}</div>
+      <div>
+        <div class="classement-nom">${escapeHtmlClassement(entree.nom_joueur)}</div>
+        <div class="classement-jeu">${escapeHtmlClassement(entree.jeu)}</div>
+      </div>
+      <div class="classement-score">${entree.score} pts</div>
+    </div>
+  `).join("");
+}
+
+function escapeHtmlClassement(texte) {
+  const div = document.createElement("div");
+  div.textContent = texte;
+  return div.innerHTML;
+}
+
+chargerClassement();
+</script>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block titre %}Borne Arcade — Infos système{% endblock %}
+
+{% block contenu %}
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-link">← Retour</a>
+    <div class="titles">
+      <h1>Infos système</h1>
+    </div>
+  </div>
+  <div class="clock" id="horloge">--:--:--</div>
+</header>
+
+<main class="main">
+  <div class="info-card" id="carte-systeme">
+    <div class="info-row"><div class="info-label">Chargement…</div></div>
+  </div>
+</main>
+{% endblock %}
+
+{% block script %}
+<script>
+async function chargerInfosSysteme() {
+  const data = await appelApi("/api/systeme");
+  if (!data) return;
+  const carte = document.getElementById("carte-systeme");
+
+  let texteWifi, classeWifi, classeDot;
+  if (data.wifi.connecte === null) {
+    texteWifi = "Statut inconnu"; classeWifi = "dim"; classeDot = "dim";
+  } else if (data.wifi.connecte) {
+    texteWifi = `Connecté (${data.wifi.ssid})`; classeWifi = "ok"; classeDot = "ok";
+  } else {
+    texteWifi = "Non connecté"; classeWifi = "warn"; classeDot = "warn";
+  }
+
+  const disque = data.disque.pourcentage !== null
+    ? `${data.disque.pourcentage}% utilisé — ${data.disque.libre_go} Go libres sur ${data.disque.total_go} Go`
+    : "Indisponible";
+
+  const temperature = data.temperature !== null ? `${data.temperature} °C` : "Indisponible";
+
+  carte.innerHTML = `
+    <div class="info-row">
+      <div class="info-label">📅 Date</div>
+      <div class="info-value">${data.date}</div>
+    </div>
+    <div class="info-row">
+      <div class="info-label"><span class="dot ${classeDot}"></span> Wi-Fi</div>
+      <div class="info-value ${classeWifi}">${texteWifi}</div>
+    </div>
+    <div class="info-row">
+      <div class="info-label">💾 Espace disque</div>
+      <div class="info-value">${disque}</div>
+    </div>
+    <div class="info-row">
+      <div class="info-label">🌡️ Température CPU</div>
+      <div class="info-value">${temperature}</div>
+    </div>
+    <div class="info-row">
+      <div class="info-label">🎮 Jeux installés</div>
+      <div class="info-value">${data.nb_jeux}</div>
+    </div>
+    <div class="info-row">
+      <div class="info-label">🕹️ Manettes branchées</div>
+      <div class="info-value ${data.nb_manettes > 0 ? 'ok' : 'dim'}">${data.nb_manettes}</div>
+    </div>
+    <div class="info-row">
+      <div class="info-label">🧑‍🎓 Élèves référencés</div>
+      <div class="info-value">${data.nb_eleves}</div>
+    </div>
+  `;
+}
+
+chargerInfosSysteme();
+setInterval(chargerInfosSysteme, 5000);
+</script>
+{% endblock %}

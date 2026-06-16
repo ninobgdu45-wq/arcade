@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block titre %}Borne Arcade — Élèves{% endblock %}
+
+{% block contenu %}
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-link">← Retour</a>
+    <div class="titles">
+      <h1>Élèves</h1>
+      <p>Gestion des élèves et de leurs jeux</p>
+    </div>
+  </div>
+  <div class="clock" id="horloge">--:--:--</div>
+</header>
+
+<main class="main">
+  <div class="toolbar">
+    <div class="search-box">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" id="champ-recherche" placeholder="Rechercher un élève…">
+    </div>
+    <button class="btn btn-primary" onclick="ouvrirAjoutEleve()">➕ Ajouter un élève</button>
+  </div>
+
+  <div class="filtre-classe" id="filtre-classe"></div>
+
+  <div id="liste-eleves">
+    <div class="empty-state"><div class="icon">⏳</div>Chargement…</div>
+  </div>
+</main>
+{% endblock %}
+
+{% block script %}
+<script>
+let classeActive = null;
+
+async function chargerClasses() {
+  const classes = await appelApi("/api/eleves/classes") || [];
+  const conteneur = document.getElementById("filtre-classe");
+  conteneur.innerHTML = `<div class="chip ${classeActive === null ? 'actif' : ''}" onclick="selectionnerClasse(null)">Toutes</div>` +
+    classes.map(c => `<div class="chip ${classeActive === c ? 'actif' : ''}" onclick="selectionnerClasse('${c}')">${c}</div>`).join("");
+}
+
+function selectionnerClasse(classe) {
+  classeActive = classe;
+  chargerClasses();
+  chargerEleves();
+}
+
+async function chargerEleves() {
+  const requete = document.getElementById("champ-recherche").value;
+  let url = `/api/eleves?q=${encodeURIComponent(requete)}`;
+  if (classeActive) url += `&classe=${encodeURIComponent(classeActive)}`;
+  const liste = await appelApi(url);
+  const conteneur = document.getElementById("liste-eleves");
+
+  if (!liste || liste.length === 0) {
+    conteneur.innerHTML = `<div class="empty-state"><div class="icon">🧑‍🎓</div>Aucun élève trouvé.</div>`;
+    return;
+  }
+
+  const jeuxParEleve = await Promise.all(liste.map(e => appelApi(`/api/eleves/jeux/${e.id}`)));
+
+  conteneur.innerHTML = liste.map((e, i) => `
+    <div class="eleve-card">
+      <div>
+        <div class="nom">${escapeHtml(e.nom)} <span class="classe-badge">${e.classe}</span></div>
+        <div class="jeux-count">${(jeuxParEleve[i] || []).length} jeu(x) déposé(s)</div>
+      </div>
+      <div class="game-actions">
+        <button class="btn btn-ghost btn-sm" onclick="ouvrirModifierEleve('${e.id}', '${escapeAttr(e.nom)}', '${e.classe}')">✏️ Modifier</button>
+        <button class="btn btn-ghost btn-danger btn-sm" onclick="confirmerSupprimerEleve('${e.id}', '${escapeAttr(e.nom)}')">🗑 Supprimer</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function escapeHtml(texte) {
+  const div = document.createElement("div");
+  div.textContent = texte;
+  return div.innerHTML;
+}
+function escapeAttr(texte) {
+  return texte.replace(/'/g, "\\'");
+}
+
+async function ouvrirAjoutEleve() {
+  const classes = await appelApi("/api/eleves/classes") || [];
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3>Ajouter un élève</h3>
+      <p>Nom complet et classe de l'élève.</p>
+      <input type="text" id="champ-nom" class="champ-texte" placeholder="Nom de l'élève" style="margin-bottom:14px;">
+      <select id="champ-classe" class="champ-texte" style="margin-bottom:14px;">
+        ${classes.map(c => `<option value="${c}">${c}</option>`).join("")}
+      </select>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-annuler">Annuler</button>
+        <button class="btn btn-primary" id="modal-valider">Ajouter</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("open"));
+  overlay.querySelector("#champ-nom").focus();
+
+  const fermer = () => {
+    overlay.classList.remove("open");
+    setTimeout(() => overlay.remove(), 180);
+  };
+  overlay.querySelector("#modal-annuler").onclick = fermer;
+  overlay.querySelector("#modal-valider").onclick = async () => {
+    const nom = overlay.querySelector("#champ-nom").value;
+    const classe = overlay.querySelector("#champ-classe").value;
+    if (!nom.trim()) {
+      afficherToast("Le nom ne peut pas être vide.", "error");
+      return;
+    }
+    const resultat = await appelApi("/api/eleves/ajouter", { method: "POST", body: JSON.stringify({ nom, classe }) });
+    afficherToast(resultat.message, resultat.succes ? "success" : "error");
+    if (resultat.succes) {
+      fermer();
+      chargerEleves();
+    }
+  };
+}
+
+async function ouvrirModifierEleve(id, nomActuel, classeActuelle) {
+  const classes = await appelApi("/api/eleves/classes") || [];
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3>Modifier l'élève</h3>
+      <input type="text" id="champ-nom" class="champ-texte" value="${nomActuel}" style="margin-bottom:14px;">
+      <select id="champ-classe" class="champ-texte" style="margin-bottom:14px;">
+        ${classes.map(c => `<option value="${c}" ${c === classeActuelle ? "selected" : ""}>${c}</option>`).join("")}
+      </select>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-annuler">Annuler</button>
+        <button class="btn btn-primary" id="modal-valider">Enregistrer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("open"));
+
+  const fermer = () => {
+    overlay.classList.remove("open");
+    setTimeout(() => overlay.remove(), 180);
+  };
+  overlay.querySelector("#modal-annuler").onclick = fermer;
+  overlay.querySelector("#modal-valider").onclick = async () => {
+    const nom = overlay.querySelector("#champ-nom").value;
+    const classe = overlay.querySelector("#champ-classe").value;
+    const resultat = await appelApi("/api/eleves/modifier", { method: "POST", body: JSON.stringify({ id, nom, classe }) });
+    afficherToast(resultat.message, resultat.succes ? "success" : "error");
+    if (resultat.succes) {
+      fermer();
+      chargerEleves();
+    }
+  };
+}
+
+async function confirmerSupprimerEleve(id, nom) {
+  const confirme = await demanderConfirmation(
+    "Supprimer cet élève ?",
+    `« ${nom} » sera retiré, ainsi que ses attributions de jeux.`,
+    "Supprimer", true
+  );
+  if (!confirme) return;
+  const resultat = await appelApi("/api/eleves/supprimer", { method: "POST", body: JSON.stringify({ id }) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+  chargerEleves();
+}
+
+let timeoutRechercheEleves = null;
+document.getElementById("champ-recherche").addEventListener("input", () => {
+  clearTimeout(timeoutRechercheEleves);
+  timeoutRechercheEleves = setTimeout(chargerEleves, 200);
+});
+
+chargerClasses();
+chargerEleves();
+</script>
+{% endblock %}

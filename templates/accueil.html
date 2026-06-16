@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block titre %}Borne Arcade — Accueil{% endblock %}
+
+{% block contenu %}
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="titles">
+      <h1>BORNE ARCADE</h1>
+      <p>Technologie Collège</p>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:14px;">
+    <button class="btn btn-ghost btn-sm" id="bouton-musique" onclick="basculerBoutonMusique()">🔇 Musique</button>
+    <div class="clock" id="horloge">--:--:--</div>
+  </div>
+</header>
+
+<main class="main">
+  <div class="hero">
+    <img src="{{ url_for('servir_asset', nom_fichier='logo.png') }}" class="hero-logo" alt="Logo" onerror="this.style.display='none'">
+    <h1>RETRO<span class="accent">GAMING</span></h1>
+    <p>Bienvenue sur la borne du collège</p>
+  </div>
+
+  <div class="nav-grid">
+    <a href="/bibliotheque" class="nav-card">
+      <div class="icon">🎮</div>
+      <div class="label">Jouer</div>
+    </a>
+    <button class="nav-card" onclick="ouvrirDepot()">
+      <div class="icon">➕</div>
+      <div class="label">Déposer un jeu</div>
+    </button>
+    <a href="/classement" class="nav-card">
+      <div class="icon">🏆</div>
+      <div class="label">Classement</div>
+    </a>
+    <a href="/creer" class="nav-card">
+      <div class="icon">🛠️</div>
+      <div class="label">Créer un jeu</div>
+    </a>
+    <a href="/eleves" class="nav-card">
+      <div class="icon">🧑‍🎓</div>
+      <div class="label">Élèves</div>
+    </a>
+    <a href="/systeme" class="nav-card">
+      <div class="icon">📊</div>
+      <div class="label">Infos système</div>
+    </a>
+    <a href="/admin" class="nav-card">
+      <div class="icon">🔒</div>
+      <div class="label">Administration</div>
+    </a>
+  </div>
+
+  <div class="shortcuts">
+    Raccourcis clavier : <kbd>S</kbd> Scratch &nbsp; <kbd>R</kbd> redémarrer* &nbsp; <kbd>E</kbd> éteindre* &nbsp; (*mot de passe requis)
+  </div>
+</main>
+{% endblock %}
+
+{% block script %}
+<script>
+let listeElevesPourDepot = [];
+let idsAuteursSelectionnes = [];
+
+async function ouvrirDepot() {
+  if (listeElevesPourDepot.length === 0) {
+    listeElevesPourDepot = await appelApi("/api/eleves") || [];
+  }
+  idsAuteursSelectionnes = [];
+
+  const optionsEleves = listeElevesPourDepot.map(e =>
+    `<label class="checkbox-eleve">
+       <input type="checkbox" value="${e.id}" class="case-auteur">
+       ${escapeHtmlAccueil(e.nom)} <span style="color:var(--text-faint); font-size:11px;">(${e.classe})</span>
+     </label>`
+  ).join("") || `<p style="color:var(--text-faint); font-size:12.5px;">Aucun élève enregistré pour le moment.</p>`;
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" style="width:420px; max-height:80vh; overflow-y:auto;">
+      <h3>Déposer un jeu</h3>
+      <p>Formats acceptés : .sb3 (Scratch), .nes, .gb, .gba</p>
+      <input type="file" id="modal-fichier" accept=".sb3,.nes,.gb,.gba">
+      <p style="margin:14px 0 6px; font-size:12.5px; color:var(--text-dim);">Auteur(s) (optionnel) :</p>
+      <div style="max-height:160px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:4px; margin-bottom:14px;">
+        ${optionsEleves}
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-annuler">Annuler</button>
+        <button class="btn btn-primary" id="modal-valider">Déposer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("open"));
+
+  const fermer = () => {
+    overlay.classList.remove("open");
+    setTimeout(() => overlay.remove(), 180);
+  };
+  overlay.querySelector("#modal-annuler").onclick = fermer;
+  overlay.querySelector("#modal-valider").onclick = async () => {
+    const champFichier = overlay.querySelector("#modal-fichier");
+    if (!champFichier.files.length) {
+      afficherToast("Choisis un fichier d'abord.", "error");
+      return;
+    }
+    const cases = overlay.querySelectorAll(".case-auteur:checked");
+    const idsAuteurs = Array.from(cases).map(c => c.value);
+
+    const donnees = new FormData();
+    donnees.append("fichier", champFichier.files[0]);
+    donnees.append("auteurs", idsAuteurs.join(","));
+    const reponse = await fetch("/api/jeux/deposer", { method: "POST", body: donnees });
+    const resultat = await reponse.json();
+    afficherToast(resultat.message, resultat.succes ? "success" : "error");
+    if (resultat.succes) fermer();
+  };
+}
+
+function escapeHtmlAccueil(texte) {
+  const div = document.createElement("div");
+  div.textContent = texte;
+  return div.innerHTML;
+}
+
+function basculerBoutonMusique() {
+  if (typeof window.basculerMusiqueAmbiance !== "function") {
+    afficherToast("Aucune musique d'ambiance disponible (dépose des fichiers dans le dossier musique/).", "error");
+    return;
+  }
+  const enCours = window.basculerMusiqueAmbiance();
+  document.getElementById("bouton-musique").textContent = enCours ? "🔊 Musique" : "🔇 Musique";
+}
+
+// Raccourcis clavier globaux
+document.addEventListener("keydown", async (e) => {
+  if (e.key === "s" || e.key === "S") {
+    const resultat = await appelApi("/api/scratch/ouvrir", { method: "POST", body: JSON.stringify({}) });
+    if (resultat) afficherToast(resultat.message, resultat.succes ? "success" : "error");
+  }
+  if (e.key === "r" || e.key === "R") {
+    const mdp = await demanderMotDePasse("Redémarrer la borne", "Mot de passe administrateur requis.");
+    if (mdp) {
+      const resultat = await appelApi("/api/admin/redemarrer", { method: "POST", body: JSON.stringify({ mot_de_passe: mdp }) });
+      afficherToast(resultat.message, resultat.succes ? "success" : "error");
+    }
+  }
+  if (e.key === "e" || e.key === "E") {
+    const mdp = await demanderMotDePasse("Éteindre la borne", "Mot de passe administrateur requis.");
+    if (mdp) {
+      const resultat = await appelApi("/api/admin/eteindre", { method: "POST", body: JSON.stringify({ mot_de_passe: mdp }) });
+      afficherToast(resultat.message, resultat.succes ? "success" : "error");
+    }
+  }
+});
+</script>
+{% endblock %}

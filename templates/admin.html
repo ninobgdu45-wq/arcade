@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block titre %}Borne Arcade — Administration{% endblock %}
+
+{% block contenu %}
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-link">← Retour</a>
+    <div class="titles">
+      <h1>Administration</h1>
+      <p>Accès restreint</p>
+    </div>
+  </div>
+  <div class="clock" id="horloge">--:--:--</div>
+</header>
+
+<main class="main" id="zone-admin">
+  <div class="empty-state">
+    <div class="icon">🔒</div>
+    Vérification de l'accès…
+  </div>
+</main>
+{% endblock %}
+
+{% block script %}
+<script>
+async function verifierAcces() {
+  const mdp = await demanderMotDePasse("Accès administrateur", "Cette section est protégée.");
+  if (mdp === null) {
+    window.location.href = "/";
+    return;
+  }
+  const resultat = await appelApi("/api/admin/verifier", { method: "POST", body: JSON.stringify({ mot_de_passe: mdp }) });
+  if (resultat && resultat.valide) {
+    afficherEcranAdmin();
+  } else {
+    afficherToast("Mot de passe incorrect.", "error");
+    setTimeout(verifierAcces, 300);
+  }
+}
+
+async function afficherEcranAdmin() {
+  const zone = document.getElementById("zone-admin");
+  zone.innerHTML = `
+    <div class="admin-grid">
+      <button class="admin-action" onclick="actionRedemarrer()">
+        <div class="icon">🔁</div>
+        <div class="label">Redémarrer la borne</div>
+      </button>
+      <button class="admin-action danger" onclick="actionEteindre()">
+        <div class="icon">⏻</div>
+        <div class="label">Éteindre la borne</div>
+      </button>
+      <button class="admin-action" onclick="actionChangerMdp()">
+        <div class="icon">🔑</div>
+        <div class="label">Changer le mot de passe</div>
+      </button>
+      <button class="admin-action" onclick="actionVoirJournal()">
+        <div class="icon">📋</div>
+        <div class="label">Voir le journal</div>
+      </button>
+      <button class="admin-action" onclick="actionCreerSauvegarde()">
+        <div class="icon">💾</div>
+        <div class="label">Créer une sauvegarde</div>
+      </button>
+      <button class="admin-action" onclick="actionVoirSauvegardes()">
+        <div class="icon">📦</div>
+        <div class="label">Gérer les sauvegardes</div>
+      </button>
+    </div>
+
+    <div class="stats-card" style="margin-bottom:16px;">
+      <h3>Manettes branchées</h3>
+      <div id="liste-manettes">Chargement…</div>
+    </div>
+
+    <div class="stats-card">
+      <h3>Jeux les plus lancés</h3>
+      <div id="liste-stats">Chargement…</div>
+    </div>
+  `;
+  chargerStats();
+  chargerManettes();
+}
+
+async function chargerManettes() {
+  const manettes = await appelApi("/api/manettes");
+  const conteneur = document.getElementById("liste-manettes");
+  if (!manettes || manettes.length === 0) {
+    conteneur.innerHTML = `<div class="stat-line"><span>Aucune manette détectée.</span></div>`;
+    return;
+  }
+  conteneur.innerHTML = manettes.map(m => `
+    <span class="manette-badge"><span class="dot ok"></span>${escapeHtmlAdmin(m.nom)}</span>
+  `).join("");
+}
+
+function escapeHtmlAdmin(texte) {
+  const div = document.createElement("div");
+  div.textContent = texte;
+  return div.innerHTML;
+}
+
+async function chargerStats() {
+  const stats = await appelApi("/api/admin/stats");
+  const conteneur = document.getElementById("liste-stats");
+  const entrees = Object.entries(stats || {});
+  if (entrees.length === 0) {
+    conteneur.innerHTML = `<div class="stat-line"><span>Aucune donnée pour le moment.</span></div>`;
+    return;
+  }
+  conteneur.innerHTML = entrees.slice(0, 5).map(([nom, compte]) => `
+    <div class="stat-line"><span>${nom}</span><span class="count">${compte} lancement(s)</span></div>
+  `).join("");
+}
+
+async function actionRedemarrer() {
+  const confirme = await demanderConfirmation("Redémarrer la borne ?", "La borne va redémarrer immédiatement.", "Redémarrer", true);
+  if (!confirme) return;
+  const mdp = await demanderMotDePasse("Confirmation requise", "Mot de passe administrateur.");
+  if (!mdp) return;
+  const resultat = await appelApi("/api/admin/redemarrer", { method: "POST", body: JSON.stringify({ mot_de_passe: mdp }) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+}
+
+async function actionEteindre() {
+  const confirme = await demanderConfirmation("Éteindre la borne ?", "La borne va s'éteindre immédiatement.", "Éteindre", true);
+  if (!confirme) return;
+  const mdp = await demanderMotDePasse("Confirmation requise", "Mot de passe administrateur.");
+  if (!mdp) return;
+  const resultat = await appelApi("/api/admin/eteindre", { method: "POST", body: JSON.stringify({ mot_de_passe: mdp }) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+}
+
+async function actionChangerMdp() {
+  const ancien = await demanderMotDePasse("Mot de passe actuel", "Saisis le mot de passe actuel.");
+  if (!ancien) return;
+  const nouveau = await demanderMotDePasse("Nouveau mot de passe", "Saisis le nouveau mot de passe (4 caractères minimum).");
+  if (!nouveau) return;
+  const resultat = await appelApi("/api/admin/changer-mdp", { method: "POST", body: JSON.stringify({ ancien, nouveau }) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+}
+
+async function actionVoirJournal() {
+  const lignes = await appelApi("/api/admin/journal");
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const contenuJournal = (lignes && lignes.length)
+    ? lignes.map(l => `<div class="stat-line"><span>${l.date_heure} · ${l.action}${l.detail ? " · " + l.detail : ""}</span></div>`).join("")
+    : `<div class="stat-line"><span>Journal vide.</span></div>`;
+  overlay.innerHTML = `
+    <div class="modal" style="width: 480px; max-height: 70vh; overflow-y: auto;">
+      <h3>Journal d'utilisation</h3>
+      <p>50 dernières actions</p>
+      <div style="font-family: var(--font-mono); font-size: 12px;">${contenuJournal}</div>
+      <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-primary" id="modal-fermer">Fermer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("open"));
+  overlay.querySelector("#modal-fermer").onclick = () => {
+    overlay.classList.remove("open");
+    setTimeout(() => overlay.remove(), 180);
+  };
+}
+
+async function actionCreerSauvegarde() {
+  afficherToast("Création de la sauvegarde en cours…", "info");
+  const resultat = await appelApi("/api/admin/sauvegarde/creer", { method: "POST", body: JSON.stringify({}) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+}
+
+async function actionVoirSauvegardes() {
+  const sauvegardes = await appelApi("/api/admin/sauvegarde/liste");
+  afficherModalSauvegardes(sauvegardes || []);
+}
+
+function afficherModalSauvegardes(sauvegardes) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const contenu = sauvegardes.length
+    ? sauvegardes.map(s => `
+        <div class="sauvegarde-row">
+          <div class="sauvegarde-info">
+            <div class="nom">${s.nom}</div>
+            <div class="meta">${s.date} · ${s.taille_ko} Ko</div>
+          </div>
+          <div class="game-actions">
+            <a class="btn btn-ghost btn-sm" href="/api/admin/sauvegarde/telecharger/${encodeURIComponent(s.nom)}">⬇</a>
+            <button class="btn btn-ghost btn-sm" onclick="actionRestaurer('${s.nom}')">♻️</button>
+            <button class="btn btn-ghost btn-danger btn-sm" onclick="actionSupprimerSauvegarde('${s.nom}')">🗑</button>
+          </div>
+        </div>
+      `).join("")
+    : `<div class="stat-line"><span>Aucune sauvegarde pour le moment.</span></div>`;
+
+  overlay.innerHTML = `
+    <div class="modal" style="width: 480px; max-height: 70vh; overflow-y: auto;">
+      <h3>Sauvegardes</h3>
+      <p>Archives .zip de la bibliothèque et des données</p>
+      ${contenu}
+      <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-primary" id="modal-fermer">Fermer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("open"));
+  const fermer = () => {
+    overlay.classList.remove("open");
+    setTimeout(() => overlay.remove(), 180);
+  };
+  overlay.querySelector("#modal-fermer").onclick = fermer;
+  window._fermerModalSauvegardes = fermer;
+}
+
+async function actionRestaurer(nom) {
+  const confirme = await demanderConfirmation(
+    "Restaurer cette sauvegarde ?",
+    "Les jeux, élèves et scores actuels seront remplacés par ceux de la sauvegarde.",
+    "Restaurer", true
+  );
+  if (!confirme) return;
+  const resultat = await appelApi("/api/admin/sauvegarde/restaurer", { method: "POST", body: JSON.stringify({ nom }) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+  if (window._fermerModalSauvegardes) window._fermerModalSauvegardes();
+}
+
+async function actionSupprimerSauvegarde(nom) {
+  const confirme = await demanderConfirmation("Supprimer cette sauvegarde ?", nom, "Supprimer", true);
+  if (!confirme) return;
+  const resultat = await appelApi("/api/admin/sauvegarde/supprimer", { method: "POST", body: JSON.stringify({ nom }) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+  if (window._fermerModalSauvegardes) window._fermerModalSauvegardes();
+  actionVoirSauvegardes();
+}
+
+verifierAcces();
+</script>
+{% endblock %}

@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block titre %}Borne Arcade — Bibliothèque{% endblock %}
+
+{% block contenu %}
+<header class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-link">← Retour</a>
+    <div class="titles">
+      <h1>Bibliothèque</h1>
+      <p>Scratch et émulateurs</p>
+    </div>
+  </div>
+  <div class="clock" id="horloge">--:--:--</div>
+</header>
+
+<main class="main">
+  <div class="toolbar">
+    <div class="search-box">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" id="champ-recherche" placeholder="Rechercher un jeu…">
+    </div>
+    <button class="btn btn-primary" onclick="ouvrirDepot()">➕ Déposer</button>
+  </div>
+
+  <div class="game-list" id="liste-jeux">
+    <div class="empty-state"><div class="icon">⏳</div>Chargement…</div>
+  </div>
+</main>
+{% endblock %}
+
+{% block script %}
+<script>
+let timeoutRecherche = null;
+
+async function chargerJeux() {
+  const requete = document.getElementById("champ-recherche").value;
+  const jeux = await appelApi(`/api/jeux?q=${encodeURIComponent(requete)}`);
+  const conteneur = document.getElementById("liste-jeux");
+
+  if (!jeux || jeux.length === 0) {
+    conteneur.innerHTML = `<div class="empty-state"><div class="icon">🔍</div>Aucun jeu trouvé.</div>`;
+    return;
+  }
+
+  conteneur.innerHTML = jeux.map(jeu => `
+    <div class="game-row ${jeu.favori ? 'favori' : ''}">
+      <div class="game-info">
+        <div class="name">${jeu.favori ? '<span class="star">★</span>' : ''}${escapeHtml(jeu.nom)}</div>
+        <div class="meta">
+          <span class="tag">${jeu.type}</span>
+          ${jeu.taille_ko} Ko · ajouté le ${jeu.date_ajout}
+        </div>
+        ${jeu.auteurs && jeu.auteurs.length ? `
+          <div class="auteurs-tags">
+            ${jeu.auteurs.map(a => `<span class="auteur-tag">${escapeHtml(a.nom)} · ${a.classe}</span>`).join("")}
+          </div>` : ""}
+      </div>
+      <div class="game-actions">
+        <button class="btn btn-primary btn-sm" onclick="lancerJeu('${escapeAttr(jeu.nom)}')">▶ Lancer</button>
+        <button class="btn btn-ghost btn-sm" onclick="ouvrirScore('${escapeAttr(jeu.nom)}')">🏆 Score</button>
+        <button class="btn btn-ghost btn-sm" onclick="basculerFavori('${escapeAttr(jeu.nom)}')">${jeu.favori ? '★ Retirer' : '☆ Favori'}</button>
+        <button class="btn btn-ghost btn-danger btn-sm" onclick="supprimerJeu('${escapeAttr(jeu.nom)}')">🗑</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function escapeHtml(texte) {
+  const div = document.createElement("div");
+  div.textContent = texte;
+  return div.innerHTML;
+}
+function escapeAttr(texte) {
+  return texte.replace(/'/g, "\\'");
+}
+
+async function lancerJeu(nom) {
+  const resultat = await appelApi("/api/jeux/lancer", { method: "POST", body: JSON.stringify({ nom }) });
+  if (resultat) afficherToast(resultat.message, resultat.succes ? "success" : "error");
+}
+
+async function basculerFavori(nom) {
+  await appelApi("/api/jeux/favori", { method: "POST", body: JSON.stringify({ nom }) });
+  chargerJeux();
+}
+
+async function supprimerJeu(nom) {
+  const confirme = await demanderConfirmation(
+    "Supprimer ce jeu ?",
+    `« ${nom} » sera définitivement supprimé.`,
+    "Supprimer",
+    true
+  );
+  if (!confirme) return;
+  const resultat = await appelApi("/api/jeux/supprimer", { method: "POST", body: JSON.stringify({ nom }) });
+  afficherToast(resultat.message, resultat.succes ? "success" : "error");
+  chargerJeux();
+}
+
+async function ouvrirScore(nomJeu) {
+  const listeEleves = await appelApi("/api/eleves") || [];
+  const optionsEleves = listeEleves.map(e => `<option value="${e.id}">${escapeHtml(e.nom)} (${e.classe})</option>`).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3>Enregistrer un score</h3>
+      <p>Jeu : ${escapeHtml(nomJeu)}</p>
+      <select id="champ-joueur" class="champ-texte" style="margin-bottom:14px;">
+        <option value="">Joueur anonyme / invité</option>
+        ${optionsEleves}
+      </select>
+      <input type="text" id="champ-score" class="champ-texte" placeholder="Score obtenu" inputmode="numeric" style="margin-bottom:14px;">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-annuler">Annuler</button>
+        <button class="btn btn-primary" id="modal-valider">Enregistrer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("open"));
+  overlay.querySelector("#champ-score").focus();
+
+  const fermer = () => {
+    overlay.classList.remove("open");
+    setTimeout(() => overlay.remove(), 180);
+  };
+  overlay.querySelector("#modal-annuler").onclick = fermer;
+  overlay.querySelector("#modal-valider").onclick = async () => {
+    const idEleve = overlay.querySelector("#champ-joueur").value || null;
+    const score = overlay.querySelector("#champ-score").value;
+    if (!score || isNaN(parseInt(score))) {
+      afficherToast("Saisis un score valide.", "error");
+      return;
+    }
+    const resultat = await appelApi("/api/scores/enregistrer", {
+      method: "POST",
+      body: JSON.stringify({ jeu: nomJeu, score: parseInt(score), id_eleve: idEleve }),
+    });
+    afficherToast(resultat.message, resultat.succes ? "success" : "error");
+    if (resultat.succes) fermer();
+  };
+}
+
+function ouvrirDepot() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3>Déposer un jeu</h3>
+      <p>Formats acceptés : .sb3 (Scratch), .nes, .gb, .gba</p>
+      <input type="file" id="modal-fichier" accept=".sb3,.nes,.gb,.gba">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-annuler">Annuler</button>
+        <button class="btn btn-primary" id="modal-valider">Déposer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("open"));
+
+  const fermer = () => {
+    overlay.classList.remove("open");
+    setTimeout(() => overlay.remove(), 180);
+  };
+  overlay.querySelector("#modal-annuler").onclick = fermer;
+  overlay.querySelector("#modal-valider").onclick = async () => {
+    const champFichier = overlay.querySelector("#modal-fichier");
+    if (!champFichier.files.length) {
+      afficherToast("Choisis un fichier d'abord.", "error");
+      return;
+    }
+    const donnees = new FormData();
+    donnees.append("fichier", champFichier.files[0]);
+    const reponse = await fetch("/api/jeux/deposer", { method: "POST", body: donnees });
+    const resultat = await reponse.json();
+    afficherToast(resultat.message, resultat.succes ? "success" : "error");
+    if (resultat.succes) {
+      fermer();
+      chargerJeux();
+    }
+  };
+}
+
+document.getElementById("champ-recherche").addEventListener("input", () => {
+  clearTimeout(timeoutRecherche);
+  timeoutRecherche = setTimeout(chargerJeux, 200);
+});
+
+chargerJeux();
+</script>
+{% endblock %}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>{% block titre %}Borne Arcade{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="app">
+    {% block contenu %}{% endblock %}
+  </div>
+
+  <div id="ecran-veille" class="veille-overlay">
+    <div class="veille-contenu">
+      <img src="{{ url_for('servir_asset', nom_fichier='logo.png') }}" class="veille-logo" alt="" onerror="this.style.display='none'">
+      <h1 class="veille-titre">BORNE <span class="accent">ARCADE</span></h1>
+      <div class="veille-horloge" id="veille-horloge">--:--:--</div>
+      <div class="veille-stats" id="veille-stats"></div>
+      <p class="veille-indice">Touchez l'écran pour continuer</p>
+    </div>
+  </div>
+
+  <audio id="audio-ambiance" loop></audio>
+
+  <div id="toast-container"></div>
+
+  <script src="{{ url_for('static', filename='js/commun.js') }}"></script>
+  {% block script %}{% endblock %}
+</body>
+</html>
